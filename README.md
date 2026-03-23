@@ -9,34 +9,58 @@
 ## Architecture
 
 ```mermaid
+%%{init: {
+  "flowchart": { "curve": "basis", "padding": 12 },
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "ui-sans-serif, system-ui, sans-serif",
+    "fontSize": "13px",
+    "primaryColor": "#dbeafe",
+    "primaryTextColor": "#0c4a6e",
+    "primaryBorderColor": "#0369a1",
+    "secondaryColor": "#ecfdf5",
+    "tertiaryColor": "#f8fafc",
+    "lineColor": "#94a3b8",
+    "textColor": "#0f172a"
+  }
+}}%%
+
 flowchart LR
-    subgraph AWS["AWS"]
-        EMR["EMR 7.12\n(Spark 3.5.6)"]
-        S3["S3 Bucket\n(Iceberg V3 + Row Lineage)"]
-        Glue["AWS Glue\nCatalog"]
-        EMR -->|write with\nmerge-on-read| S3
-        EMR -->|register| Glue
-    end
 
-    subgraph Snowflake["Snowflake"]
-        CLD["Catalog-Linked\nDatabase"]
-        Stream["Standard Stream\n(Full CDC)"]
-        DIT["Dynamic Iceberg\nTable"]
-        Gov["Horizon\nMasking · Tags · RAP"]
-        Target["Downstream\nConsumers"]
+  subgraph AWS["☁️ AWS"]
+    direction TB
+    EMR["EMR 7.12<br/><small>Spark 3.5.6</small>"]
+    S3["S3 bucket<br/><small>Iceberg v3 · row lineage</small>"]
+    Glue["Glue Data Catalog"]
+    EMR -->|"merge-on-read<br/>writes"| S3
+    EMR -->|"register tables"| Glue
+  end
 
-        CLD --> Stream
-        CLD --> Gov
-        Stream --> DIT
-        Stream --> Target
-        DIT --> Target
-    end
+  subgraph SF["❄️ Snowflake"]
+    direction TB
+    CLD["Catalog-linked<br/>database"]
+    Stream["Standard stream<br/><small>full CDC</small>"]
+    DIT["Dynamic Iceberg<br/>table"]
+    Gov["Horizon<br/><small>masking · tags · RAP</small>"]
+    Target["Downstream<br/>consumers"]
 
-    Glue -->|auto-sync\nschema + data| CLD
+    CLD --> Stream
+    CLD --> Gov
+    Stream --> DIT
+    Stream --> Target
+    DIT --> Target
+  end
 
-    style S3 fill:#e8f4e8,stroke:#2d7d2d
-    style CLD fill:#e8ecf4,stroke:#2d4a7d
-    style Stream fill:#f4ece8,stroke:#7d4a2d
+  Glue == "auto-sync<br/>schema + data" ==> CLD
+
+  classDef aws fill:#ecfdf5,stroke:#15803d,stroke-width:2px,color:#14532d
+  classDef snow fill:#eff6ff,stroke:#1d4ed8,stroke-width:2px,color:#1e3a8a
+  classDef accent fill:#fff7ed,stroke:#c2410c,stroke-width:2px,color:#7c2d12
+  classDef neutral fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#334155
+
+  class EMR,S3,Glue aws
+  class CLD,DIT,Gov,Target snow
+  class Stream accent
 ```
 
 **Data flow:** EMR writes V3 Iceberg (with row lineage + deletion vectors) to S3 → Glue registers metadata → Snowflake CLD auto-syncs → Standard streams capture INSERT/UPDATE/DELETE → Dynamic Iceberg Tables or MERGE pipelines consume the changes — all governed by Horizon (masking, tagging, row access).
