@@ -1,7 +1,7 @@
 # The Battle for Compute: Iceberg V3 & Snowflake Interoperability
 
 > Code companion for the [Medium article](https://medium.com/@your-handle/article-slug).  
-> Tested: **March 23, 2026** | Snowflake V3 Support: **Public Preview**  
+> Tested: **March 25, 2026** | Snowflake V3 Support: **Public Preview**  
 > EMR: **7.12** (Spark 3.5.6)
 
 ---
@@ -184,7 +184,9 @@ FROM "your_database"."customer_orders_v3"
 GROUP BY "region";
 ```
 
-This writes Parquet to S3 and registers the table in Glue — EMR/Spark can immediately query it. True bidirectional interoperability.
+This writes Parquet to S3 and registers the table in Glue — EMR/Spark can immediately query it via `spark.sql("SELECT * FROM glue_catalog.your_database.orders_summary")`. True bidirectional interoperability.
+
+**Verified (March 25, 2026):** Table created as V3 (`ICEBERG_VERSION = 3`), registered in Glue (`catalog_table_name = orders_summary`), 4 Parquet files on S3, `can_write_metadata = Y`.
 
 → [`sql/07_cld_writeback.sql`](sql/07_cld_writeback.sql)
 
@@ -220,7 +222,7 @@ All Snowflake governance features work on Iceberg tables via CLD — verified:
 
 ---
 
-## Test Results (March 23, 2026)
+## Test Results (March 25, 2026)
 
 | Test | Result |
 |------|--------|
@@ -234,7 +236,7 @@ All Snowflake governance features work on Iceberg tables via CLD — verified:
 | Object tagging (Horizon) | **PASS** |
 | Row access policy | **PASS** |
 | CLD schema sync (ADD/DROP/RENAME) | **PASS** |
-| CLD write-back (CREATE TABLE + INSERT from Snowflake to Glue) | **PASS** |
+| CLD write-back (CREATE TABLE + INSERT from Snowflake to Glue) | **PASS** — V3, Glue-registered, 4 Parquet files on S3 |
 | Dynamic Iceberg Table from CLD source | **PASS** |
 
 ### Engine Row Lineage Support
