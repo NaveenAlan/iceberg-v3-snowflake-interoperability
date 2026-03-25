@@ -80,7 +80,8 @@ flowchart LR
     ├── 03_deletion_vectors.sql     # Inspect .puffin deletion vector files
     ├── 04_governance.sql           # Masking, tagging, row access policies
     ├── 05_dynamic_iceberg_table.sql# DIT from CLD source
-    └── 06_merge_pattern.sql        # Consume stream via MERGE INTO
+    ├── 06_merge_pattern.sql        # Consume stream via MERGE INTO
+    └── 07_cld_writeback.sql         # Write back to external catalog from Snowflake
 ```
 
 ---
@@ -159,6 +160,33 @@ aws s3 cp s3://your-iceberg-data/glue_tables/.../metadata/00001-xxx.metadata.jso
 - [`sql/04_governance.sql`](sql/04_governance.sql) — masking, tagging, row access on Iceberg
 - [`sql/05_dynamic_iceberg_table.sql`](sql/05_dynamic_iceberg_table.sql) — automated pipeline
 - [`sql/06_merge_pattern.sql`](sql/06_merge_pattern.sql) — consume CDC via MERGE
+- [`sql/07_cld_writeback.sql`](sql/07_cld_writeback.sql) — write back to external catalog from Snowflake
+
+---
+
+## CLD Write-Back
+
+CLD is **read and write by default**. You can create and populate tables in your external catalog directly from Snowflake:
+
+```sql
+USE DATABASE glue_iceberg_db;
+
+CREATE ICEBERG TABLE "your_database"."orders_summary" (
+    "region" VARCHAR,
+    "total_orders" INT,
+    "total_revenue" NUMBER(12,2)
+)
+ICEBERG_VERSION = 3;
+
+INSERT INTO "your_database"."orders_summary"
+SELECT "region", COUNT(*), SUM("amount")
+FROM "your_database"."customer_orders_v3"
+GROUP BY "region";
+```
+
+This writes Parquet to S3 and registers the table in Glue — EMR/Spark can immediately query it. True bidirectional interoperability.
+
+→ [`sql/07_cld_writeback.sql`](sql/07_cld_writeback.sql)
 
 ---
 
@@ -206,6 +234,7 @@ All Snowflake governance features work on Iceberg tables via CLD — verified:
 | Object tagging (Horizon) | **PASS** |
 | Row access policy | **PASS** |
 | CLD schema sync (ADD/DROP/RENAME) | **PASS** |
+| CLD write-back (CREATE TABLE + INSERT from Snowflake to Glue) | **PASS** |
 | Dynamic Iceberg Table from CLD source | **PASS** |
 
 ### Engine Row Lineage Support
