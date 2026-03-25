@@ -51,7 +51,7 @@ flowchart LR
     DIT --> Target
   end
 
-  Glue == "auto-sync<br/>schema + data" ==> CLD
+  Glue <== "bi-directional<br/>read + write" ==> CLD
 
   classDef aws fill:#ecfdf5,stroke:#15803d,stroke-width:2px,color:#14532d
   classDef snow fill:#eff6ff,stroke:#1d4ed8,stroke-width:2px,color:#1e3a8a
@@ -63,7 +63,7 @@ flowchart LR
   class Stream accent
 ```
 
-**Data flow:** EMR writes V3 Iceberg (with row lineage + deletion vectors) to S3 → Glue registers metadata → Snowflake CLD auto-syncs → Standard streams capture INSERT/UPDATE/DELETE → Dynamic Iceberg Tables or MERGE pipelines consume the changes — all governed by Horizon (masking, tagging, row access).
+**Data flow:** CLD is **bi-directional** (read + write). EMR writes V3 Iceberg (with row lineage + deletion vectors) to S3 → Glue registers metadata → Snowflake CLD auto-syncs. Snowflake can also write back through the CLD to the external catalog. Standard streams capture INSERT/UPDATE/DELETE → Dynamic Iceberg Tables or MERGE pipelines consume the changes — all governed by Horizon (masking, tagging, row access).
 
 ---
 
