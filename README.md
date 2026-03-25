@@ -155,6 +155,51 @@ aws s3 cp s3://your-iceberg-data/glue_tables/.../metadata/00001-xxx.metadata.jso
 - **DELETE + INSERT** + `ISUPDATE = true` → UPDATE (old deleted, new inserted)  
 - **DELETE** + `ISUPDATE = false` → true delete  
 
+---
+
+## The Identity Model: Row Lineage
+
+How Snowflake sees changes **before** and **after** V3 row lineage:
+
+```mermaid
+%%{init: {
+  "flowchart": { "curve": "basis", "padding": 12 },
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "ui-sans-serif, system-ui, sans-serif",
+    "fontSize": "13px",
+    "primaryColor": "#dbeafe",
+    "primaryTextColor": "#0c4a6e",
+    "primaryBorderColor": "#0369a1",
+    "lineColor": "#94a3b8",
+    "textColor": "#0f172a"
+  }
+}}%%
+
+flowchart TB
+  subgraph V2["❌ Before V3"]
+    direction TB
+    S1["Snapshot 1<br/><small>file-A.parquet</small><br/>row: Alice, $100"]
+    S2["Snapshot 2<br/><small>file-B.parquet</small><br/>row: Alice, $150"]
+    S1 -->|"file changed<br/><b>new row? update?<br/>Snowflake can't tell</b>"| S2
+  end
+
+  subgraph V3["✅ With V3 Row Lineage"]
+    direction TB
+    R1["Snapshot 1<br/><small>file-A.parquet</small><br/>row_id=<b>0x01</b> · Alice, $100"]
+    R2["Snapshot 2<br/><small>file-B.parquet</small><br/>row_id=<b>0x01</b> · Alice, $150<br/><small>+ deletion vector on file-A</small>"]
+    R1 -->|"same row_id 0x01<br/><b>→ UPDATE detected</b>"| R2
+  end
+
+  classDef old fill:#fef2f2,stroke:#dc2626,stroke-width:2px,color:#7f1d1d
+  classDef new fill:#ecfdf5,stroke:#15803d,stroke-width:2px,color:#14532d
+
+  class S1,S2 old
+  class R1,R2 new
+```
+
+The `METADATA$ROW_ID` is a permanent serial number born with each row. When Snowflake sees the same `row_id` disappear from one file and reappear in another, it knows: **that's an UPDATE, not a new INSERT**.
+
 ### 6. Explore further
 - [`sql/03_deletion_vectors.sql`](sql/03_deletion_vectors.sql) — inspect `.puffin` soft-delete files
 - [`sql/04_governance.sql`](sql/04_governance.sql) — masking, tagging, row access on Iceberg
@@ -185,6 +230,52 @@ GROUP BY "region";
 ```
 
 This writes Parquet to S3 and registers the table in Glue — EMR/Spark can immediately query it via `spark.sql("SELECT * FROM glue_catalog.your_database.orders_summary")`. True bidirectional interoperability.
+
+### The Bridge Model: Bidirectional CLD
+
+```mermaid
+%%{init: {
+  "flowchart": { "curve": "basis", "padding": 12 },
+  "theme": "base",
+  "themeVariables": {
+    "fontFamily": "ui-sans-serif, system-ui, sans-serif",
+    "fontSize": "13px",
+    "primaryColor": "#dbeafe",
+    "primaryTextColor": "#0c4a6e",
+    "primaryBorderColor": "#0369a1",
+    "lineColor": "#94a3b8",
+    "textColor": "#0f172a"
+  }
+}}%%
+
+flowchart LR
+  subgraph Engines["Compute Engines"]
+    direction TB
+    EMR["EMR 7.12<br/><small>Spark</small>"]
+    SF["❄️ Snowflake<br/><small>via CLD</small>"]
+  end
+
+  subgraph Storage["Open Storage"]
+    direction TB
+    S3["S3 bucket<br/><small>Iceberg v3 Parquet +<br/>deletion vectors</small>"]
+    Glue["Glue Catalog<br/><small>table registry</small>"]
+    S3 --- Glue
+  end
+
+  EMR -->|"CREATE TABLE<br/>INSERT · UPDATE · DELETE"| S3
+  EMR -->|"register"| Glue
+  SF -->|"CREATE TABLE<br/>INSERT INTO"| S3
+  SF -->|"register"| Glue
+  Glue -->|"auto-sync<br/>schema + snapshots"| SF
+
+  classDef engine fill:#eff6ff,stroke:#1d4ed8,stroke-width:2px,color:#1e3a8a
+  classDef store fill:#ecfdf5,stroke:#15803d,stroke-width:2px,color:#14532d
+
+  class EMR,SF engine
+  class S3,Glue store
+```
+
+Both EMR and Snowflake are **first-class writers** to the same Iceberg tables. Glue is the shared catalog; S3 is the shared storage. CLD makes Snowflake a peer, not just a reader.
 
 **Verified (March 25, 2026):** Table created as V3 (`ICEBERG_VERSION = 3`), registered in Glue (`catalog_table_name = orders_summary`), 4 Parquet files on S3, `can_write_metadata = Y`.
 
