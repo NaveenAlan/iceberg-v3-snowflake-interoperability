@@ -91,7 +91,7 @@ flowchart LR
 ### AWS
 - S3 bucket (e.g., `s3://your-iceberg-data/`)
 - AWS Glue catalog
-- EMR Serverless application (**EMR 7.12+** required — Glue 5.0 does NOT write row lineage)
+- EMR Serverless application (**EMR 7.12+** or **Glue 5.1+** required for V3 row lineage — Glue 5.0 does NOT support it)
 - IAM execution role with S3 + Glue permissions
 
 ### Snowflake
@@ -292,6 +292,8 @@ V3 with `merge-on-read` uses `.puffin` deletion vector files instead of rewritin
 | `00000-4-...-00001.parquet` | DATA_FILE | ~1.8KB |
 | `00000-4-...-00001-deletes.puffin` | DELETION_VECTOR | ~2.2KB |
 
+> **Note on sizes:** In this toy example (3 rows), the Puffin overhead exceeds the data file size — that's expected at micro-scale. In production, a single data file might be 128MB–1GB, while the corresponding deletion vector remains **~2–4KB**. That's the real win.
+
 Without deletion vectors, a single UPDATE on a 1GB Parquet file rewrites the entire file. With them: a ~2KB marker file. At billions of rows, this is the difference between minutes and hours of CDC lag.
 
 → [`sql/03_deletion_vectors.sql`](sql/03_deletion_vectors.sql)
@@ -332,11 +334,12 @@ All Snowflake governance features work on Iceberg tables via CLD — verified:
 
 ### Engine Row Lineage Support
 
-| Engine | V3 Format | Row Lineage | Full CDC |
-|--------|-----------|-------------|----------|
-| AWS Glue 5.0 | Yes | **No** | No |
-| EMR 7.12 (Spark 3.5.6) | Yes | **Yes** | **Yes** |
-| Snowflake (managed) | Yes | **Yes** | **Yes** |
+| Engine | Spark | Iceberg Lib | V3 Format | Row Lineage | Full CDC |
+|--------|-------|-------------|-----------|-------------|----------|
+| AWS Glue 5.0 | 3.5.4 | 1.7.1 | No | **No** | No |
+| AWS Glue 5.1 | 3.5.6 | 1.10.0 | Yes | **Yes** | **Yes** |
+| EMR 7.12 (Spark 3.5.6) | 3.5.6 | 1.7.1+ | Yes | **Yes** | **Yes** |
+| Snowflake (managed) | — | — | Yes | **Yes** | **Yes** |
 
 ---
 
@@ -344,7 +347,7 @@ All Snowflake governance features work on Iceberg tables via CLD — verified:
 
 ### Glue 5.0 creates V3 but CDC still doesn't work
 
-Glue 5.0 writes `format-version: 3` but does **not** write row lineage metadata (`next-row-id` is null). You must use **EMR 7.12+** (Spark 3.5.6) for row lineage. Check your metadata:
+Glue 5.0 ships Spark 3.5.4 with Iceberg **1.7.1**, which predates V3 format support — it does **not** write row lineage metadata (`next-row-id` is null). Upgrade to **Glue 5.1** (Spark 3.5.6, Iceberg 1.10.0) or use **EMR 7.12+**. Check your metadata:
 
 ```bash
 aws s3 cp s3://your-bucket/.../metadata/latest.metadata.json - | grep next-row-id
@@ -373,7 +376,7 @@ CLD detects schema changes **only when a new snapshot arrives** (i.e., a data co
 
 This means either:
 - The table is V2, not V3
-- The table is V3 but lacks row lineage (written by Glue, not EMR)
+- The table is V3 but lacks row lineage (written by Glue 5.0, not Glue 5.1+ or EMR)
 - V3 preview is not enabled on your account
 
 Verify: `SHOW PARAMETERS LIKE 'ICEBERG_VERSION' IN TABLE <table_name>;`
@@ -399,6 +402,41 @@ DIT output **must** be Snowflake-managed (`CATALOG = 'SNOWFLAKE'`). You cannot w
 4. Dynamic Iceberg Table output must be Snowflake-managed
 5. Column names from Glue/Spark are case-sensitive in Snowflake — use double quotes
 6. Governance policies persist across CLD schema evolution
+
+---
+
+## Beyond CLD: Horizon IRC Writes
+
+CLD bridges external catalogs into Snowflake. The complementary path is **Horizon IRC** (Iceberg REST Catalog): external engines write directly to **Snowflake-managed** Iceberg tables via Horizon's open APIs (powered by Apache Polaris). External reads are GA; writes are in Public Preview (March 2026).
+
+- **CLD**: Snowflake reads/writes to *your* external catalog (Glue, Unity, Polaris)
+- **Horizon IRC**: External engines read/write to *Snowflake's* catalog
+
+See [Ashwin Kamath's blog](https://www.snowflake.com/en/engineering-blog/bidirectional-interoperability-iceberg-snowflake-horizon-catalog/) for the full walkthrough.
+
+---
+
+## Engine-Side CDC: Spark `create_changelog_view`
+
+Snowflake streams are the Snowflake-native way to consume V3 CDC. For pure Spark pipelines, Iceberg provides a native equivalent:
+
+```sql
+CALL glue_catalog.system.create_changelog_view(
+    table => 'your_database.customer_orders_v3',
+    options => map('compute_updates', 'true')
+);
+
+SELECT * FROM customer_orders_v3_changes;
+-- Returns: INSERT, DELETE, UPDATE_BEFORE, UPDATE_AFTER
+```
+
+---
+
+## Further Reading
+
+- [Iceberg V3 Specification Support in Snowflake](https://docs.snowflake.com/en/user-guide/tables-iceberg-v3-specification-support) — Official V3 docs
+- [Stop Moving Data: Automate Your Open Lakehouse with Cortex Code CLI](https://www.snowflake.com/en/engineering-blog/catalog-linked-databases-cortex-code-cli-iceberg/) — Jeemin Sim on CLD + Cortex Code
+- [Full Bidirectional Interoperability for Iceberg Tables in Horizon Catalog](https://www.snowflake.com/en/engineering-blog/bidirectional-interoperability-iceberg-snowflake-horizon-catalog/) — Ashwin Kamath on Horizon IRC writes (PuPr)
 
 ---
 
