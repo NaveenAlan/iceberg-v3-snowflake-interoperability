@@ -461,6 +461,7 @@ SELECT * FROM customer_orders_v3_changes;
 - [Iceberg V3 Specification Support in Snowflake](https://docs.snowflake.com/en/user-guide/tables-iceberg-v3-specification-support) — Official V3 docs
 - [Stop Moving Data: Automate Your Open Lakehouse with Cortex Code CLI](https://www.snowflake.com/en/engineering-blog/catalog-linked-databases-cortex-code-cli-iceberg/) — Jeemin Sim on CLD + Cortex Code
 - [Full Bidirectional Interoperability for Iceberg Tables in Horizon Catalog](https://www.snowflake.com/en/engineering-blog/bidirectional-interoperability-iceberg-snowflake-horizon-catalog/) — Ashwin Kamath on Horizon IRC writes (PuPr)
+- [Integrating Snowflake and Databricks with Iceberg v3](https://medium.com/@scottteal/integrating-snowflake-and-databricks-with-iceberg-v3-f162be001d0b) — Scott Teal on Horizon IRC + Spark CDC patterns
 
 ---
 
