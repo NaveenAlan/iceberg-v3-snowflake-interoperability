@@ -73,7 +73,8 @@ flowchart LR
 ├── README.md
 ├── scripts/
 │   ├── create_v3_table.py          # Create V3 table with row lineage in EMR
-│   └── cdc_test_operations.py      # INSERT, UPDATE, DELETE, schema evolution
+│   ├── cdc_test_operations.py      # INSERT, UPDATE, DELETE, schema evolution
+│   └── generate_scale_data.py      # 10M-row Glue 5.1 scale test for deletion vectors
 └── sql/
     ├── 01_setup.sql                # External Volume, Catalog Integration, CLD
     ├── 02_streams_and_cdc.sql      # Standard stream + CDC queries
@@ -285,16 +286,15 @@ Both EMR and Snowflake are **first-class writers** to the same Iceberg tables. G
 
 ## Deletion Vectors
 
-V3 with `merge-on-read` uses `.puffin` deletion vector files instead of rewriting data files:
+V3 with `merge-on-read` uses `.puffin` deletion vector files instead of rewriting data files. Tested with 10M rows (Glue 5.1):
 
-| File | Type | Size |
-|------|------|------|
-| `00000-4-...-00001.parquet` | DATA_FILE | ~1.8KB |
-| `00000-4-...-00001-deletes.puffin` | DELETION_VECTOR | ~2.2KB |
+| Metric | DATA_FILE | DELETION_VECTOR |
+|--------|-----------|----------------|
+| File count | 37 | 1 |
+| Total size | 75.8 MB | **493 bytes** |
+| Avg file size | 2.0 MB | **493 bytes** |
 
-> **Note on sizes:** In this toy example (3 rows), the Puffin overhead exceeds the data file size — that's expected at micro-scale. In production, a single data file might be 128MB–1GB, while the corresponding deletion vector remains **~2–4KB**. That's the real win.
-
-Without deletion vectors, a single UPDATE on a 1GB Parquet file rewrites the entire file. With them: a ~2KB marker file. At billions of rows, this is the difference between minutes and hours of CDC lag.
+The average data file is **4,358x larger** than the deletion vector. An UPDATE of 1,000 rows out of 10M produced a single 493-byte Puffin marker — instead of rewriting the ~2MB Parquet file containing those rows. At production scale (billion-row tables, GB-sized files), this is the difference between minutes and hours of CDC lag.
 
 → [`sql/03_deletion_vectors.sql`](sql/03_deletion_vectors.sql)
 
