@@ -39,6 +39,8 @@ flowchart LR
   subgraph SF["❄️ Snowflake"]
     direction TB
     CLD["Catalog-linked<br/>database"]
+    ManagedIce["Snowflake-managed<br/>Iceberg tables"]
+    IRC["Horizon IRC<br/><small>REST Catalog API</small>"]
     Stream["Standard stream<br/><small>full CDC</small>"]
     DIT["Dynamic Iceberg<br/>table"]
     Gov["Horizon<br/><small>masking · tags · RAP</small>"]
@@ -46,24 +48,34 @@ flowchart LR
 
     CLD --> Stream
     CLD --> Gov
+    ManagedIce --> Gov
+    ManagedIce --> Stream
+    IRC --> ManagedIce
     Stream --> DIT
     Stream --> Target
     DIT --> Target
   end
 
-  Glue <== "bi-directional<br/>read + write" ==> CLD
+  Glue <== "Path 1: CLD<br/>bi-directional<br/>read + write" ==> CLD
+  EMR <-.-> |"Path 2: IRC<br/>read + write<br/>via REST API"| IRC
 
   classDef aws fill:#ecfdf5,stroke:#15803d,stroke-width:2px,color:#14532d
   classDef snow fill:#eff6ff,stroke:#1d4ed8,stroke-width:2px,color:#1e3a8a
   classDef accent fill:#fff7ed,stroke:#c2410c,stroke-width:2px,color:#7c2d12
-  classDef neutral fill:#f8fafc,stroke:#64748b,stroke-width:1.5px,color:#334155
+  classDef irc fill:#fdf4ff,stroke:#7c3aed,stroke-width:2px,color:#4c1d95
 
   class EMR,S3,Glue aws
-  class CLD,DIT,Gov,Target snow
+  class CLD,DIT,Gov,Target,ManagedIce snow
   class Stream accent
+  class IRC irc
 ```
 
-**Data flow:** CLD is **bi-directional** (read + write). EMR writes V3 Iceberg (with row lineage + deletion vectors) to S3 → Glue registers metadata → Snowflake CLD auto-syncs. Snowflake can also write back through the CLD to the external catalog. Standard streams capture INSERT/UPDATE/DELETE → Dynamic Iceberg Tables or MERGE pipelines consume the changes — all governed by Horizon (masking, tagging, row access).
+**Two interoperability paths, one governance layer:**
+
+- **Path 1 — CLD:** EMR writes V3 Iceberg to S3 → Glue registers metadata → Snowflake CLD auto-syncs. Snowflake can also write back through CLD to the external catalog. *Your catalog, Snowflake's governance.*
+- **Path 2 — Horizon IRC:** External engines (Spark, Trino, Flink) connect to Snowflake's Horizon Catalog via the Iceberg REST Catalog protocol and read/write directly to Snowflake-managed Iceberg tables. *Snowflake's catalog, open to every engine.*
+
+Both paths feed into the same Horizon governance layer (masking, tagging, row access) and the same CDC pipeline (streams → DIT / MERGE).
 
 ---
 
@@ -284,6 +296,27 @@ Both EMR and Snowflake are **first-class writers** to the same Iceberg tables. G
 
 ---
 
+## Horizon IRC: The Other Direction
+
+CLD is one direction. The complementary path is **Horizon IRC** (Iceberg REST Catalog): external engines write directly to **Snowflake-managed** Iceberg tables via Horizon's open APIs (powered by Apache Polaris). External reads are GA; writes are in Public Preview (March 2026).
+
+The only question is: **who owns the catalog?**
+
+| | CLD | Horizon IRC |
+|---|---|---|
+| **Catalog owner** | You (Glue, Unity, Polaris) | Snowflake (Horizon) |
+| **Snowflake's role** | Reader + writer to your catalog | Catalog provider via REST API |
+| **External engine's role** | Primary writer to their catalog | Reader + writer to Snowflake tables |
+| **Governance** | Horizon (masking, tags, RAP) | Horizon (same governance) |
+| **Status** | GA | Reads: GA / Writes: Public Preview |
+| **Best for** | Existing lakehouse + add Snowflake | Snowflake-first + add Spark/Trino |
+
+Both paths share the same Horizon governance layer. Together, they deliver complete bidirectional interoperability — no other platform does both.
+
+See [Ashwin Kamath's blog](https://www.snowflake.com/en/engineering-blog/bidirectional-interoperability-iceberg-snowflake-horizon-catalog/) for the full Horizon IRC walkthrough with Spark configuration.
+
+---
+
 ## Deletion Vectors
 
 V3 with `merge-on-read` uses `.puffin` deletion vector files instead of rewriting data files. Tested with 10M rows (Glue 5.1):
@@ -302,7 +335,7 @@ The average data file is **4,358x larger** than the deletion vector. An UPDATE o
 
 ## Governance (Horizon)
 
-All Snowflake governance features work on Iceberg tables via CLD — verified:
+All Snowflake governance features work on Iceberg tables — whether accessed via CLD or Horizon IRC:
 
 | Feature | Works on CLD Iceberg? | Survives Schema Evolution? |
 |---------|----------------------|---------------------------|
@@ -402,17 +435,6 @@ DIT output **must** be Snowflake-managed (`CATALOG = 'SNOWFLAKE'`). You cannot w
 4. Dynamic Iceberg Table output must be Snowflake-managed
 5. Column names from Glue/Spark are case-sensitive in Snowflake — use double quotes
 6. Governance policies persist across CLD schema evolution
-
----
-
-## Beyond CLD: Horizon IRC Writes
-
-CLD bridges external catalogs into Snowflake. The complementary path is **Horizon IRC** (Iceberg REST Catalog): external engines write directly to **Snowflake-managed** Iceberg tables via Horizon's open APIs (powered by Apache Polaris). External reads are GA; writes are in Public Preview (March 2026).
-
-- **CLD**: Snowflake reads/writes to *your* external catalog (Glue, Unity, Polaris)
-- **Horizon IRC**: External engines read/write to *Snowflake's* catalog
-
-See [Ashwin Kamath's blog](https://www.snowflake.com/en/engineering-blog/bidirectional-interoperability-iceberg-snowflake-horizon-catalog/) for the full walkthrough.
 
 ---
 
