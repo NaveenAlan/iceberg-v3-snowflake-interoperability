@@ -304,12 +304,14 @@ The only question is: **who owns the catalog?**
 
 | | CLD | Horizon IRC |
 |---|---|---|
-| **Catalog owner** | You (Glue, Unity, Polaris) | Snowflake (Horizon) |
+| **Catalog owner** | You (Glue, Unity, others) | Snowflake (Horizon) |
 | **Snowflake's role** | Reader + writer to your catalog | Catalog provider via REST API |
-| **External engine's role** | Primary writer to their catalog | Reader + writer to Snowflake tables |
-| **Governance** | Horizon (masking, tags, RAP) | Horizon (same governance) |
+| **External engine's role** | Reader + writer to their catalog (Snowflake writes back too) | Reader + writer to Snowflake tables |
+| **Governance** | Masking, tags, RAP, lineage, data quality, sensitive data classification | Masking, tags, RAP, lineage, data quality, sensitive data classification, vending temporary + scoped storage credentials |
 | **Status** | GA | Reads: GA / Writes: Public Preview |
 | **Best for** | Existing lakehouse + add Snowflake | Snowflake-first + add Spark/Trino |
+| **Table maintenance** | Your catalog or self-orchestrated | Snowflake |
+| **HA/DR** | Self-built | Snowflake out-of-the-box |
 
 Both paths share the same Horizon governance layer. Together, they deliver complete bidirectional interoperability — no other platform does both.
 
